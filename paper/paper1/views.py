@@ -2,15 +2,28 @@
 from __future__ import unicode_literals
 
 from django.shortcuts import render
+from django.core.urlresolvers import reverse
 
 from rest_framework.views import APIView
 from rest_framework.parsers import MultiPartParser, FormParser, FileUploadParser, JSONParser 
 from rest_framework.response import Response
-from rest_framework import status
+from rest_framework import viewsets, status
+from rest_framework.decorators import list_route
+from rest_framework.settings import api_settings
+from rest_framework_csv.parsers import CSVParser
+from rest_framework_csv.renderers import CSVRenderer, JSONRenderer
 
-from .serializers import DataFileSerializer
-from .models import DataFile
-from rest_framework.renderers import JSONRenderer
+
+from .serializers import DataFileSerializer, ModelFileSerializer
+from .models import DataFile, ModelFile
+import csv
+import codecs
+import os
+from django.conf import settings
+from django.http import HttpResponse
+
+
+
 
 class DataFileView(APIView):
 
@@ -59,6 +72,38 @@ class DataFileDetailView(APIView):
 
 	def fit(self, request, pk, format=None):
 		return Response(status=status.HTTP_204_NO_CONTENT)
+
+class ModelFileView(APIView):
+	parser_classes = (MultiPartParser, FormParser)
+	queryset = ModelFile.objects.all()
+	parser_classes = (CSVParser,) + tuple(api_settings.DEFAULT_PARSER_CLASSES)
+	renderer_classes = (CSVRenderer,) + tuple(api_settings.DEFAULT_RENDERER_CLASSES)
+	serializer_class = ModelFileSerializer
+	all=[]
+
+	def post(self, request, *args, **kwargs):
+		all = ""
+		modelfile_serializer = ModelFileSerializer(data=request.data)
+		if modelfile_serializer.is_valid():
+			modelfile_serializer.save()
+			data = self.request.data.get('modelfile')
+			reader = csv.DictReader(data, delimiter=str(u';').encode('utf-8'))
+			for row in reader:
+				all+= str(row)+'\n'
+			return Response(all, status=status.HTTP_201_CREATED)
+
+	def get(self, request, path, format=None):
+		file_path = os.path.join(settings.MEDIA_ROOT, path)
+		if os.path.exists(file_path):
+			with open(file_path, 'rb' ) as fh:
+				response = HttpResponse(fh.read(), content_type="application/vnd.ms-excel")
+				response['Content-Disposition'] = 'inline; filename=' + os.path.basename(file_path)
+				return response
+		raise Http404
+	
+
+			
+
 
 
 
