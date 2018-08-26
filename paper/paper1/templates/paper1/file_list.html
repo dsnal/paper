@@ -1,0 +1,13 @@
+<table border = "1" colspan = "2" width="100%">
+	<tr>
+		<th width="60%">File</th>
+		<th width="40%">Download</th>
+	</tr>
+{% for file in filelist %}
+<tr>
+	<td width="60%"> {{file.modelfile}}<br>Uploaded by - {{file.uploader}}</td>
+	
+	<td width="40%" align="center"> <a href= "/paper1/download/{{file.modelfile}}" style="text-decoration:None">Download here </a></td>
+</tr>
+{% endfor %}
+</table>

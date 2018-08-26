@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 from __future__ import unicode_literals
 
-from django.shortcuts import render
+from django.shortcuts import render, redirect
 from django.core.urlresolvers import reverse
 
 from rest_framework.views import APIView
@@ -14,13 +14,22 @@ from rest_framework_csv.parsers import CSVParser
 from rest_framework_csv.renderers import CSVRenderer, JSONRenderer
 
 
-from .serializers import DataFileSerializer, ModelFileSerializer
+from .serializers import DataFileSerializer, ModelFileSerializer, UserSerializer
 from .models import DataFile, ModelFile
 import csv
 import codecs
 import os
+import mimetypes
+from django.utils.encoding import smart_str
+from wsgiref.util import FileWrapper
 from django.conf import settings
 from django.http import HttpResponse
+from .forms import RegistrationForm
+from rest_framework import generics
+from django.contrib.auth.models import User
+from rest_framework import permissions
+from .permissions import IsOwnerOrReadOnly
+
 
 
 
@@ -28,7 +37,6 @@ from django.http import HttpResponse
 class DataFileView(APIView):
 
 	parser_classes = (MultiPartParser, FormParser)
-
 	def post(self, request, *args, **kwargs):
 		datafile_serializer = DataFileSerializer(data=request.data)
 		if datafile_serializer.is_valid():
@@ -45,7 +53,6 @@ class DataFileView(APIView):
 
 class DataFileDetailView(APIView):
 	parser_classes = (MultiPartParser, FormParser)
-
 	def get_object(self, pk):
 		try:
 			return DataFile.objects.get(pk=pk)
@@ -74,6 +81,7 @@ class DataFileDetailView(APIView):
 		return Response(status=status.HTTP_204_NO_CONTENT)
 
 class ModelFileView(APIView):
+	permission_classes = (permissions.IsAuthenticatedOrReadOnly, IsOwnerOrReadOnly,)
 	parser_classes = (MultiPartParser, FormParser)
 	queryset = ModelFile.objects.all()
 	parser_classes = (CSVParser,) + tuple(api_settings.DEFAULT_PARSER_CLASSES)
@@ -83,29 +91,61 @@ class ModelFileView(APIView):
 
 	def post(self, request, *args, **kwargs):
 		all = ""
-		modelfile_serializer = ModelFileSerializer(data=request.data)
-		if modelfile_serializer.is_valid():
-			modelfile_serializer.save()
+		serializer = ModelFileSerializer(data=request.data)
+		if serializer.is_valid():
+			#modelfile_serializer.save(uploader=self.request.user)
+			serializer.save(uploader=self.request.user)
 			data = self.request.data.get('modelfile')
 			reader = csv.DictReader(data, delimiter=str(u';').encode('utf-8'))
 			for row in reader:
 				all+= str(row)+'\n'
 			return Response(all, status=status.HTTP_201_CREATED)
 
-	def get(self, request, path, format=None):
-		file_path = os.path.join(settings.MEDIA_ROOT, path)
-		if os.path.exists(file_path):
-			with open(file_path, 'rb' ) as fh:
-				response = HttpResponse(fh.read(), content_type="application/vnd.ms-excel")
-				response['Content-Disposition'] = 'inline; filename=' + os.path.basename(file_path)
-				return response
-		raise Http404
+	def perform_create(self, serializer):
+		serializer.save(uploader=self.request.user)
+
+class UserList(generics.ListAPIView):
+    queryset = User.objects.all()
+    serializer_class = UserSerializer
+
+class ModelFileList(generics.ListAPIView):
+	queryset = ModelFile.objects.all()
+	serializer_class = ModelFileSerializer
+		
 	
+class UserDetail(generics.RetrieveAPIView):
+    queryset = User.objects.all()
+    serializer_class = UserSerializer
 
+def download_list(request):
+	modelfile_list = ModelFile.objects.all()
+	context = {'filelist' : modelfile_list}
+	return render(request, 'paper1/file_list.html', context)
 			
+def download(request,file_name):
+	file_path = settings.MEDIA_ROOT +'/'+ file_name
+	file_wrapper = FileWrapper(file(file_path,'rb'))
+	file_mimetype = mimetypes.guess_type(file_path)
+	response = HttpResponse(file_wrapper, content_type=file_mimetype)
+	response['X-Sendfile'] = file_path
+	response['Content-Length'] = os.stat(file_path).st_size
+	response['Content-Disposition'] = 'attachment; filename=%s' % smart_str(file_name)
+	return response
+
+def rc(request):
+	return render(request, 'paper1/rc.html')
 
 
 
-
+def registerview(request):
+	if request.method == 'POST':
+		form = RegistrationForm(request.POST)
+		if form.is_valid():
+			form.save()
+			return render(request, 'paper1/rc.html')
+	else:
+		form = RegistrationForm()
+		args = {'form':form}
+		return render(request, 'paper1/registerationform.html', args)
 
 	
